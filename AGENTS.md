@@ -63,10 +63,10 @@ Add ids here when a report identifies a new game.
 
 ## Before writing a fix
 
-Lichii is a fork of [Eglantine](https://github.com/Djihads80/Eglantine). Do not guess, and do not rewrite a fix upstream already has.
+Lichii's upstream is [zortos293/Lichii](https://github.com/zortos293/Lichii); `origin` is this checkout's own fork (`oneincase/Lichii`). Both share history: `origin/nx2` is `upstream/nx2` plus this fork's own commits. Do not guess, and do not rewrite a fix upstream already has.
 
-1. `git remote add upstream https://github.com/Djihads80/Eglantine.git && git fetch upstream`.
-2. Check `upstream/nx2`, open and closed PRs, unmerged branches, and issues for the game and symptom (`gh pr list -R Djihads80/Eglantine --state all`, `gh issue list -R Djihads80/Eglantine --state all`, `gh pr diff <n>`). Read the diffs, not only the titles.
+1. `git remote add upstream https://github.com/zortos293/Lichii.git && git fetch upstream` (skip the add if it exists; `git remote -v` shows it).
+2. Check `upstream/nx2`, open and closed PRs, unmerged branches, and issues for the game and symptom (`gh pr list -R zortos293/Lichii --state all`, `gh issue list -R zortos293/Lichii --state all`, `gh pr diff <n>`). Read the diffs, not only the titles.
 3. If nx2 is behind `upstream/nx2`, merge upstream first. Port an existing upstream fix before writing a new one, and cite its PR or commit.
 4. Write a new fix only when nothing upstream addresses the root cause the log shows.
 
