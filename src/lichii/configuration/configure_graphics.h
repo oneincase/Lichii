@@ -26,6 +26,7 @@ class QPushButton;
 class QEvent;
 class QObject;
 class QComboBox;
+class QLayout;
 
 namespace Settings {
 enum class NvdecEmulation : u32;
@@ -72,6 +73,16 @@ private:
     void UpdateAPILayout();
     void UpdateDeviceSelection(int device);
     void UpdateAmdFsr4Visibility();
+
+#ifdef __APPLE__
+    /// Builds the graphics API row. On macOS the Vulkan implementation is part of the API choice,
+    /// so this row writes both the backend and the Vulkan driver.
+    void BuildAppleApiRow(QLayout* api_layout, QLayout* api_grid_layout);
+    void PopulateAppleApiRow();
+    Settings::RendererBackend api_backend{Settings::RendererBackend::Vulkan};
+    Settings::VulkanDriver api_driver{Settings::VulkanDriver::Auto};
+    bool kosmic_krisp_available{};
+#endif
 
     void RetrieveVulkanDevices();
 

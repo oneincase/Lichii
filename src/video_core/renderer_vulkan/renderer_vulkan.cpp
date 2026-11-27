@@ -146,13 +146,138 @@ VkSurfaceFormatKHR ChooseOutputFormat(const vk::PhysicalDevice& physical, VkSurf
 
 } // Anonymous namespace
 
-Device CreateDevice(const vk::Instance& instance, const vk::InstanceDispatch& dld, VkSurfaceKHR surface) {
-    const std::vector<VkPhysicalDevice> devices = instance.EnumeratePhysicalDevices();
+namespace {
+
+struct DeviceDriver {
+    VkDriverId driver_id{};
+    std::string name;
+    std::string info;
+    std::string api_version;
+};
+
+DeviceDriver QueryDriver(const vk::InstanceDispatch& dld, VkPhysicalDevice device) {
+    VkPhysicalDeviceDriverProperties driver_properties{};
+    driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+    VkPhysicalDeviceProperties2 properties{};
+    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    properties.pNext = &driver_properties;
+    dld.vkGetPhysicalDeviceProperties2(device, &properties);
+    const u32 api = properties.properties.apiVersion;
+    return DeviceDriver{
+        .driver_id = driver_properties.driverID,
+        .name = driver_properties.driverName,
+        .info = driver_properties.driverInfo,
+        .api_version = fmt::format("{}.{}.{}", VK_API_VERSION_MAJOR(api),
+                                   VK_API_VERSION_MINOR(api), VK_API_VERSION_PATCH(api)),
+    };
+}
+
+/// KosmicKrisp hard-codes the Mesa version in its driver info ("Mesa 26.3.0"); the version is
+/// what tells a recent build from one without the presentation and conformance fixes this build
+/// relies on.
+std::optional<std::array<u32, 3>> ParseMesaVersion(std::string_view info) {
+    const size_t mesa = info.find("Mesa ");
+    if (mesa == std::string_view::npos) {
+        return std::nullopt;
+    }
+    std::array<u32, 3> version{};
+    size_t index = 0;
+    size_t position = mesa + 5;
+    while (position < info.size() && index < version.size()) {
+        while (position < info.size() && (info[position] < '0' || info[position] > '9')) {
+            ++position;
+        }
+        u32 value = 0;
+        bool digits = false;
+        while (position < info.size() && info[position] >= '0' && info[position] <= '9') {
+            value = value * 10 + u32(info[position] - '0');
+            digits = true;
+            ++position;
+        }
+        if (!digits) {
+            break;
+        }
+        version[index++] = value;
+        if (index < version.size() && position < info.size() && info[position] != '.') {
+            break;
+        }
+    }
+    if (index == 0) {
+        return std::nullopt;
+    }
+    return version;
+}
+
+constexpr std::array<u32, 3> MinKosmickrispMesa{26, 3, 0};
+
+/// Picks the physical device for the configured Vulkan implementation. On macOS both MoltenVK
+/// and KosmicKrisp can be enumerated at once, and their order is not stable, so the choice is by
+/// driver id and never by index. Elsewhere the existing index setting is kept.
+u32 SelectDeviceIndex(const vk::InstanceDispatch& dld,
+                      const std::vector<VkPhysicalDevice>& devices) {
+#ifdef __APPLE__
+    const u32 wanted = Vulkan::SelectedDriverId();
+    std::optional<u32> chosen;
+    for (u32 i = 0; i < u32(devices.size()); ++i) {
+        const DeviceDriver driver = QueryDriver(dld, devices[i]);
+        if (driver.driver_id == wanted) {
+            chosen = i;
+            LOG_INFO(Render_Vulkan, "Vulkan driver {} ({}), Vulkan {}: device {} of {}",
+                     driver.name, driver.info, driver.api_version, i, devices.size());
+            if (wanted == VK_DRIVER_ID_MESA_KOSMICKRISP) {
+                const auto version = ParseMesaVersion(driver.info);
+                if (!version) {
+                    LOG_WARNING(Render_Vulkan,
+                                "KosmicKrisp does not report a Mesa version ({})",
+                                driver.info);
+                } else if (*version < MinKosmickrispMesa) {
+                    LOG_WARNING(Render_Vulkan,
+                                "KosmicKrisp ({}) is older than the required Mesa {}.{}.{}; "
+                                "update Mesa (brew upgrade mesa) or the Vulkan SDK",
+                                driver.info, MinKosmickrispMesa[0], MinKosmickrispMesa[1],
+                                MinKosmickrispMesa[2]);
+                }
+            }
+            break;
+        }
+    }
+    if (!chosen) {
+        const std::string driver_name =
+            wanted == VK_DRIVER_ID_MESA_KOSMICKRISP ? "KosmicKrisp" : "MoltenVK";
+        LOG_ERROR(Render_Vulkan,
+                  "The {} Vulkan driver is requested but not available (found {} device(s))",
+                  driver_name, devices.size());
+        for (const VkPhysicalDevice device : devices) {
+            const DeviceDriver driver = QueryDriver(dld, device);
+            LOG_ERROR(Render_Vulkan, "  available: {} ({})", driver.name, driver.info);
+        }
+        // Auto only states a preference: booting on whatever the loader offers beats refusing to
+        // start when the shipped driver is not installed.
+        if (Settings::values.vulkan_driver.GetValue() == Settings::VulkanDriver::Auto &&
+            !devices.empty()) {
+            LOG_WARNING(Render_Vulkan, "Falling back to the first available Vulkan device");
+            return 0;
+        }
+        throw vk::Exception(VK_ERROR_INCOMPATIBLE_DRIVER);
+    }
+    return *chosen;
+#else
     const u32 device_index = Settings::values.vulkan_device.GetValue();
     if (device_index >= u32(devices.size())) {
         LOG_ERROR(Render_Vulkan, "Invalid device index {}!", device_index);
         throw vk::Exception(VK_ERROR_INITIALIZATION_FAILED);
     }
+    const DeviceDriver driver = QueryDriver(dld, devices[device_index]);
+    LOG_INFO(Render_Vulkan, "Vulkan driver {} ({})", driver.name, driver.info);
+    return device_index;
+#endif
+}
+
+} // Anonymous namespace
+
+Device CreateDevice(const vk::Instance& instance, const vk::InstanceDispatch& dld, VkSurfaceKHR surface) {
+    const std::vector<VkPhysicalDevice> devices = instance.EnumeratePhysicalDevices();
+    const u32 device_index = SelectDeviceIndex(dld, devices);
     const vk::PhysicalDevice physical_device(devices[device_index], dld);
     return Device(*instance, physical_device, surface, dld);
 }

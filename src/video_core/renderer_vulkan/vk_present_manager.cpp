@@ -4,9 +4,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <thread>
 
 #include "common/display_hdr.h"
+#include "common/memory_detect.h"
 #include "common/dkb_frame_trace.h"
 #include "common/scope_exit.h"
 #include "common/settings.h"
@@ -23,6 +25,7 @@
 #include "video_core/renderer_vulkan/vk_present_manager.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_swapchain.h"
+#include "video_core/vulkan_common/vk_enum_string_helper.h"
 #include "video_core/vulkan_common/vulkan_device.h"
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
@@ -31,6 +34,18 @@
 #endif
 
 namespace Vulkan {
+
+namespace {
+
+bool SwapchainTraceEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_SWAPCHAIN_TRACE");
+        return value != nullptr && value[0] == '1';
+    }();
+    return enabled;
+}
+
+} // Anonymous namespace
 
 
 namespace {
@@ -501,6 +516,47 @@ void PresentManager::UpdateHdrMetadata() {
     swapchain.SetHdrMetadata(output.peak_luminance, output.reference_white);
 }
 
+void PresentManager::TraceRecreate(const Frame* frame) {
+    ++swapchain_recreations;
+    if (!SwapchainTraceEnabled()) {
+        return;
+    }
+    LOG_INFO(Render_Vulkan, "Swapchain recreate #{} ({}) new {}x{} images {} {}",
+             swapchain_recreations, recreate_reason.empty() ? "unknown" : recreate_reason.c_str(),
+             swapchain.GetWidth(), swapchain.GetHeight(), swapchain.GetImageCount(),
+             string_VkFormat(swapchain.GetImageFormat()));
+}
+
+void PresentManager::TracePresent() {
+    ++swapchain_presents;
+    if (!SwapchainTraceEnabled()) {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (trace_since == std::chrono::steady_clock::time_point{}) {
+        trace_since = now;
+        return;
+    }
+    const auto elapsed = now - trace_since;
+    if (elapsed < std::chrono::seconds{10}) {
+        return;
+    }
+    const double seconds = std::chrono::duration<double>(elapsed).count();
+    const Common::ProcessMemoryUsage process = Common::GetProcessMemoryUsage();
+    LOG_INFO(Render_Vulkan,
+             "Swapchain trace in {:.1f} s: {} presents ({:.1f}/s), {} recreations; device memory "
+             "{} MiB used, budget {} MiB (heap budget {} MiB, image count {}, swapchain {}x{}); "
+             "process footprint {} MiB, resident {} MiB",
+             seconds, swapchain_presents, swapchain_presents / seconds, swapchain_recreations,
+             device.GetDeviceMemoryUsage() >> 20, device.GetDeviceMemoryBudget() >> 20,
+             device.GetDeviceHeapMemoryBudget() >> 20, swapchain.GetImageCount(),
+             swapchain.GetWidth(), swapchain.GetHeight(), process.commit >> 20,
+             process.working_set >> 20);
+    trace_since = now;
+    swapchain_presents = 0;
+    swapchain_recreations = 0;
+}
+
 // Returns false after discarding a deferred or incompatible frame; creation exceptions propagate.
 bool PresentManager::RecreateSwapchain(Frame* frame) {
 #ifdef EGLANTINE_STREAMLINE
@@ -509,6 +565,7 @@ bool PresentManager::RecreateSwapchain(Frame* frame) {
     if (swapchain.Create(*surface, frame->width, frame->height, frame->format,
                          frame->color_space)) {
         SetImageCount();
+        TraceRecreate(frame);
         if (frame->color_space == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
             UpdateHdrMetadata();
         }
@@ -574,6 +631,7 @@ void PresentManager::DiscardFrame(Frame* frame) {
 }
 
 void PresentManager::CopyToSwapchain(Frame* frame) {
+    TracePresent();
 #ifdef EGLANTINE_STREAMLINE
     SCOPE_EXIT {
         if (frame->frame_gen) {
@@ -604,6 +662,7 @@ void PresentManager::CopyToSwapchain(Frame* frame) {
                 throw;
             }
 
+            recreate_reason = "present failed";
             requires_recreation = true;
         }
     }
@@ -626,6 +685,9 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
     const bool format_changed = swapchain.GetRequestedFormat() != frame->format;
     const bool color_space_changed = swapchain.GetRequestedColorSpace() != frame->color_space;
     if (is_suboptimal || size_changed || format_changed || color_space_changed) {
+        recreate_reason = is_suboptimal ? (swapchain.IsOutDated() ? "outdated" : "suboptimal")
+                                        : size_changed ? "size"
+                                                       : format_changed ? "format" : "color space";
         if (!RecreateSwapchain(frame)) {
             return;
         }
@@ -652,6 +714,7 @@ void PresentManager::CopyToSwapchainImpl(Frame* frame) {
         WaitForDisplay();
     }
     while (swapchain.AcquireNextImage(!use_present_thread, frame->game_frame_presents)) {
+        recreate_reason = "acquire outdated";
         if (!RecreateSwapchain(frame)) {
             return;
         }

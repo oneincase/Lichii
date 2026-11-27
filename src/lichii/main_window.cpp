@@ -54,6 +54,9 @@
 #include "lichii/whats_new_dialog.h"
 #include "lichii/bug_report_dialog.h"
 #include "video_core/shader_warm/shader_warm_builder.h"
+#ifdef __APPLE__
+#include "video_core/vulkan_common/vulkan_library.h"
+#endif
 #ifdef LICHII_NX_TOOLS
 #include "lichii/nx_tools.h"
 #endif
@@ -1532,6 +1535,49 @@ void MainWindow::InitializeWidgets() {
             [this](const QPoint& menu_location) {
                 QMenu context_menu;
 
+#ifdef __APPLE__
+                // The Vulkan implementation is part of the API on macOS.
+                const auto current_backend = Settings::values.renderer_backend.GetValue();
+                auto current_driver = Settings::values.vulkan_driver.GetValue();
+                if (current_driver == Settings::VulkanDriver::Auto) {
+                    current_driver = Settings::VulkanDriver::MoltenVK;
+                }
+                const auto add_api_entry = [&](const QString& label,
+                                               Settings::RendererBackend backend,
+                                               Settings::VulkanDriver driver) {
+                    QAction* action = context_menu.addAction(label);
+                    action->setCheckable(true);
+                    action->setChecked(current_backend == backend &&
+                                       (backend != Settings::RendererBackend::Vulkan ||
+                                        current_driver == driver));
+                    connect(action, &QAction::triggered, this, [this, backend, driver] {
+                        Settings::values.renderer_backend.SetValue(backend);
+                        if (backend == Settings::RendererBackend::Vulkan) {
+                            Settings::values.vulkan_driver.SetValue(driver);
+                        }
+                        renderer_status_button->setChecked(
+                            backend == Settings::RendererBackend::Vulkan);
+                        UpdateAPIText();
+                        renderer_status_button->repaint();
+                    });
+                };
+                add_api_entry(ConfigurationShared::TranslateMapText(
+                                  translator, ConfigurationShared::vulkan_api_texts_map.at(
+                                                  Settings::VulkanDriver::MoltenVK)),
+                              Settings::RendererBackend::Vulkan,
+                              Settings::VulkanDriver::MoltenVK);
+                if (Vulkan::FindKosmickrispIcd().has_value()) {
+                    add_api_entry(ConfigurationShared::TranslateMapText(
+                                      translator, ConfigurationShared::vulkan_api_texts_map.at(
+                                                      Settings::VulkanDriver::KosmicKrisp)),
+                                  Settings::RendererBackend::Vulkan,
+                                  Settings::VulkanDriver::KosmicKrisp);
+                }
+                add_api_entry(ConfigurationShared::TranslateMapText(
+                                  translator, ConfigurationShared::renderer_backend_texts_map.at(
+                                                  Settings::RendererBackend::Null)),
+                              Settings::RendererBackend::Null, Settings::VulkanDriver::Auto);
+#else
                 for (auto const& renderer_backend_pair :
                      ConfigurationShared::renderer_backend_texts_map) {
                     if (renderer_backend_pair.first == Settings::RendererBackend::Null) {
@@ -1544,6 +1590,7 @@ void MainWindow::InitializeWidgets() {
                         UpdateAPIText();
                     });
                 }
+#endif
                 context_menu.exec(renderer_status_button->mapToGlobal(menu_location));
                 renderer_status_button->repaint();
             });
@@ -4697,6 +4744,26 @@ void MainWindow::OnToggleAdaptingFilter() {
 }
 
 void MainWindow::OnToggleGraphicsAPI() {
+#ifdef __APPLE__
+    // macOS offers the Vulkan implementation as part of the API: MoltenVK, KosmicKrisp, Null.
+    auto backend = Settings::values.renderer_backend.GetValue();
+    auto driver = Settings::values.vulkan_driver.GetValue();
+    if (driver == Settings::VulkanDriver::Auto) {
+        driver = Settings::VulkanDriver::MoltenVK;
+    }
+    const bool kosmickrisp = Vulkan::FindKosmickrispIcd().has_value();
+    if (backend != Settings::RendererBackend::Vulkan) {
+        backend = Settings::RendererBackend::Vulkan;
+    } else if (kosmickrisp && driver == Settings::VulkanDriver::MoltenVK) {
+        driver = Settings::VulkanDriver::KosmicKrisp;
+    } else {
+        backend = Settings::RendererBackend::Null;
+    }
+    Settings::values.vulkan_driver.SetValue(driver);
+    Settings::values.renderer_backend.SetValue(backend);
+    renderer_status_button->setChecked(backend == Settings::RendererBackend::Vulkan);
+    UpdateAPIText();
+#else
     auto api = Settings::values.renderer_backend.GetValue();
     switch (api) {
 #ifdef HAS_OPENGL
@@ -4726,6 +4793,7 @@ void MainWindow::OnToggleGraphicsAPI() {
     Settings::values.renderer_backend.SetValue(api);
     renderer_status_button->setChecked(api == Settings::RendererBackend::Vulkan);
     UpdateAPIText();
+#endif
 }
 
 void MainWindow::OnConfigurePerGame() {
@@ -6289,6 +6357,21 @@ void MainWindow::UpdateDockedButton() {
 
 void MainWindow::UpdateAPIText() {
     const auto api = Settings::values.renderer_backend.GetValue();
+#ifdef __APPLE__
+    // macOS names the Vulkan implementation in the API label: "Vulkan (MoltenVK)".
+    if (api == Settings::RendererBackend::Vulkan) {
+        auto driver = Settings::values.vulkan_driver.GetValue();
+        if (driver == Settings::VulkanDriver::Auto ||
+            (driver == Settings::VulkanDriver::KosmicKrisp &&
+             !Vulkan::FindKosmickrispIcd().has_value())) {
+            driver = Settings::VulkanDriver::MoltenVK;
+        }
+        const auto text = ConfigurationShared::TranslateMapText(
+            translator, ConfigurationShared::vulkan_api_texts_map.find(driver)->second);
+        renderer_status_button->setText(text.toUpper());
+        return;
+    }
+#endif
     const auto renderer_status_text = ConfigurationShared::TranslateMapText(
         translator, ConfigurationShared::renderer_backend_texts_map.find(api)->second);
     renderer_status_button->setText(renderer_status_text.toUpper());

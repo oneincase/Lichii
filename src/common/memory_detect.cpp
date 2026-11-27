@@ -9,7 +9,10 @@
 #else
 #include <sys/resource.h>
 #include <sys/types.h>
-#if defined(__APPLE__) || defined(__FreeBSD__)
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <sys/sysctl.h>
+#elif defined(__FreeBSD__)
 #include <sys/sysctl.h>
 #elif defined(__linux__)
 #include <sys/sysinfo.h>
@@ -184,6 +187,17 @@ ProcessMemoryUsage GetProcessMemoryUsage() {
     if (GetPerformanceInfo(&performance, sizeof(performance))) {
         usage.system_commit = u64{performance.CommitTotal} * performance.PageSize;
         usage.system_commit_limit = u64{performance.CommitLimit} * performance.PageSize;
+    }
+#elif defined(__APPLE__)
+    // phys_footprint is what vmmap reports as the process's physical footprint; it counts the
+    // compressed and swapped parts a plain resident-size query leaves out.
+    task_vm_info_data_t vm_info{};
+    mach_msg_type_number_t vm_count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&vm_info),
+                  &vm_count) == KERN_SUCCESS) {
+        usage.commit = vm_info.phys_footprint;
+        usage.working_set = vm_info.resident_size;
+        usage.private_working_set = vm_info.internal;
     }
 #elif defined(__linux__)
     std::ifstream status{"/proc/self/status"};

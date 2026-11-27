@@ -134,6 +134,10 @@ ENUM(FramePacingMode, Target_Auto, Target_30, Target_60, Target_90, Target_120);
 ENUM(VSyncMode, Immediate, Mailbox, Fifo, FifoRelaxed);
 ENUM(VramUsageMode, Conservative, Aggressive);
 ENUM(RendererBackend, OpenGL_GLSL, Vulkan, Null, OpenGL_GLASM, OpenGL_SPIRV);
+// Apple: which Vulkan implementation the Vulkan backend presents through. Auto keeps MoltenVK
+// (the shipped, default driver); KosmicKrisp is Mesa's Vulkan-to-Metal driver and needs a recent
+// Mesa plus macOS 26.
+ENUM(VulkanDriver, Auto, MoltenVK, KosmicKrisp);
 ENUM(GpuAccuracy, Low, High);
 ENUM(DmaAccuracy, Default, Unsafe, Safe);
 ENUM(GpuFenceBehavior, Default, Immediate, Balanced, Accurate);

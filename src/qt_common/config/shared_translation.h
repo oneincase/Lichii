@@ -131,4 +131,21 @@ static const std::map<Settings::RendererBackend, QString> renderer_backend_texts
     {Settings::RendererBackend::Null, QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "Null"))},
 };
 
+// The graphics API entries a Vulkan implementation stands for, where the implementation is part
+// of the API choice (macOS).
+static const std::map<Settings::VulkanDriver, QString> vulkan_api_texts_map = {
+    {Settings::VulkanDriver::MoltenVK,
+     QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "Vulkan (MoltenVK)"))},
+    {Settings::VulkanDriver::KosmicKrisp,
+     QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "Vulkan (KosmicKrisp)"))},
+};
+
+static const std::map<Settings::VulkanDriver, QString> vulkan_driver_texts_map = {
+    {Settings::VulkanDriver::Auto, QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "Automatic"))},
+    {Settings::VulkanDriver::MoltenVK,
+     QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "MoltenVK"))},
+    {Settings::VulkanDriver::KosmicKrisp,
+     QStringLiteral(QT_TRANSLATE_NOOP("MainWindow", "KosmicKrisp"))},
+};
+
 } // namespace ConfigurationShared

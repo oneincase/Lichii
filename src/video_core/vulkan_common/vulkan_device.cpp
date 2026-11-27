@@ -1488,6 +1488,17 @@ bool Device::GetSuitability(bool requires_swapchain) {
     // Assume we will be suitable.
     bool suitable = true;
 
+    // Driver identity, so the feature checks below can exempt what a driver emulates or lacks
+    // without the game ever using it. The full properties chain is gathered further down.
+    properties.driver = {};
+    properties.driver.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+    {
+        VkPhysicalDeviceProperties2 driver_properties{};
+        driver_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        driver_properties.pNext = &properties.driver;
+        physical.GetProperties2(driver_properties);
+    }
+
     // Configure properties.
     VkPhysicalDeviceVulkan12Features features_1_2{};
     VkPhysicalDeviceVulkan13Features features_1_3{};
@@ -1763,11 +1774,13 @@ bool Device::GetSuitability(bool requires_swapchain) {
 // Some features are mandatory. Check those.
 #define CHECK_FEATURE(feature, name)                                                               \
     if (!features.feature.name) {                                                                  \
-        if (IsMoltenVK() && (strcmp(#name, "geometryShader") == 0 ||                               \
-                            strcmp(#name, "logicOp") == 0 ||                                       \
-                            strcmp(#name, "shaderCullDistance") == 0 ||                            \
-                            strcmp(#name, "wideLines") == 0)) {                                    \
-            LOG_INFO(Render_Vulkan, "MoltenVK missing feature {} - using fallback", #name);       \
+        if (IsAppleVulkan() && (strcmp(#name, "geometryShader") == 0 ||                            \
+                                strcmp(#name, "logicOp") == 0 ||                                   \
+                                strcmp(#name, "shaderCullDistance") == 0 ||                        \
+                                strcmp(#name, "wideLines") == 0 ||                                 \
+                                strcmp(#name, "fillModeNonSolid") == 0)) {                         \
+            LOG_INFO(Render_Vulkan, "{} missing feature {} - using fallback",                      \
+                     GetDriverName(), #name);                                                      \
         } else {                                                                                    \
             LOG_ERROR(Render_Vulkan, "Missing required feature {}", #name);                        \
             suitable = false;                                                                       \

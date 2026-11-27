@@ -39,6 +39,7 @@ static GPUVendor GetGPU(const std::string& gpu_vendor_string) {
         // Apple
         {"Apple",     GPUVendor::Apple},
         {"MoltenVK",  GPUVendor::Apple},
+        {"KosmicKrisp", GPUVendor::Apple},
         // Qualcomm / Adreno
         {"Qualcomm",  GPUVendor::Qualcomm},
         {"Turnip",    GPUVendor::Qualcomm},

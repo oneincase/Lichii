@@ -650,6 +650,12 @@ std::unique_ptr<ComboboxTranslationMap> ComboboxEnumeration(QObject* parent) {
           PAIR(RendererBackend, OpenGL_SPIRV, tr("OpenGL SPIR-V (Experimental, AMD/Mesa Only)")),
 #endif
           PAIR(RendererBackend, Null, tr("Null"))}});
+    translations->insert({Settings::EnumMetadata<Settings::VulkanDriver>::Index(),
+                          {
+                              PAIR(VulkanDriver, Auto, tr("Automatic")),
+                              PAIR(VulkanDriver, MoltenVK, tr("MoltenVK")),
+                              PAIR(VulkanDriver, KosmicKrisp, tr("KosmicKrisp")),
+                          }});
     translations->insert({Settings::EnumMetadata<Settings::GpuAccuracy>::Index(),
                           {
                               PAIR(GpuAccuracy, Low, tr("Fast")),

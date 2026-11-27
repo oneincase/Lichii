@@ -45,6 +45,9 @@
 #ifdef HAS_RESHADE
 #include "lichii/configuration/configure_post_processing.h"
 #endif
+#ifdef __APPLE__
+#include "video_core/vulkan_common/vulkan_library.h"
+#endif
 
 ConfigureGraphics::ConfigureGraphics(
     const Core::System& system_, std::vector<VkDeviceInfo::Record>& records_,
@@ -89,6 +92,21 @@ ConfigureGraphics::ConfigureGraphics(
     }
 
     connect(api_combobox, qOverload<int>(&QComboBox::activated), this, [this] {
+#ifdef __APPLE__
+        // The row lists the Vulkan implementation too; keep the pending choice for Apply.
+        api_backend =
+            static_cast<Settings::RendererBackend>(api_combobox->currentData().toUInt());
+        api_driver = static_cast<Settings::VulkanDriver>(
+            api_combobox->currentData(Qt::UserRole + 1).toUInt());
+        if (!Settings::IsConfiguringGlobal()) {
+            Settings::values.renderer_backend.SetGlobal(false);
+            Settings::values.vulkan_driver.SetGlobal(false);
+            if (api_restore_global_button != nullptr) {
+                api_restore_global_button->setEnabled(true);
+                api_restore_global_button->setVisible(true);
+            }
+        }
+#endif
         UpdateAPILayout();
         PopulateVSyncModeSelection(false);
     });
@@ -209,6 +227,102 @@ void ConfigureGraphics::UpdateDeviceSelection(int device) {
     UpdateAmdFsr4Visibility();
 }
 
+#ifdef __APPLE__
+void ConfigureGraphics::BuildAppleApiRow(QLayout* api_layout, QLayout* api_grid_layout) {
+    kosmic_krisp_available = Vulkan::FindKosmickrispIcd().has_value();
+
+    auto* api_row = new QWidget(this);
+    auto* row = new QHBoxLayout(api_row);
+    row->setContentsMargins(0, 0, 0, 0);
+    auto* label = new QLabel(tr("API:"), api_row);
+    row->addWidget(label, 1);
+    api_combobox = new QComboBox(api_row);
+    api_combobox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    row->addWidget(api_combobox, 1);
+    api_grid_layout->addWidget(api_row);
+
+    if (!Settings::IsConfiguringGlobal()) {
+        api_restore_global_button = ConfigurationShared::Widget::CreateRestoreGlobalButton(
+            Settings::values.renderer_backend.UsingGlobal() &&
+                Settings::values.vulkan_driver.UsingGlobal(),
+            api_row);
+        api_layout->addWidget(api_restore_global_button);
+        connect(api_restore_global_button, &QAbstractButton::clicked, this, [this](bool) {
+            Settings::values.renderer_backend.SetGlobal(true);
+            Settings::values.vulkan_driver.SetGlobal(true);
+            api_restore_global_button->setEnabled(false);
+            api_restore_global_button->setVisible(false);
+            PopulateAppleApiRow();
+            UpdateAPILayout();
+            PopulateVSyncModeSelection(false);
+        });
+    }
+    if (!kosmic_krisp_available) {
+        api_combobox->setToolTip(
+            tr("KosmicKrisp is not installed. Install Mesa (brew install mesa) or a Vulkan SDK "
+               "that ships it to choose it here."));
+    }
+    PopulateAppleApiRow();
+    apply_funcs.push_back([this](bool powered_on) {
+        if (powered_on && !Settings::values.renderer_backend.RuntimeModifiable()) {
+            return;
+        }
+        Settings::values.renderer_backend.SetValue(api_backend);
+        if (api_backend == Settings::RendererBackend::Vulkan) {
+            Settings::values.vulkan_driver.SetValue(api_driver);
+        }
+    });
+}
+
+void ConfigureGraphics::PopulateAppleApiRow() {
+    if (api_combobox == nullptr) {
+        return;
+    }
+    const bool blocked = api_combobox->blockSignals(true);
+    api_combobox->clear();
+    const auto add = [this](const QString& text, Settings::RendererBackend backend,
+                            Settings::VulkanDriver driver) {
+        api_combobox->addItem(text, static_cast<u32>(backend));
+        api_combobox->setItemData(api_combobox->count() - 1, static_cast<u32>(driver),
+                                  Qt::UserRole + 1);
+    };
+    add(tr("Vulkan (MoltenVK)"), Settings::RendererBackend::Vulkan,
+        Settings::VulkanDriver::MoltenVK);
+    if (kosmic_krisp_available) {
+        add(tr("Vulkan (KosmicKrisp)"), Settings::RendererBackend::Vulkan,
+            Settings::VulkanDriver::KosmicKrisp);
+    }
+    add(tr("Null"), Settings::RendererBackend::Null, Settings::VulkanDriver::Auto);
+
+    auto backend = Settings::values.renderer_backend.GetValue();
+    auto driver = Settings::values.vulkan_driver.GetValue();
+    if (driver == Settings::VulkanDriver::Auto) {
+        driver = Settings::VulkanDriver::MoltenVK;
+    }
+    int index = -1;
+    for (int i = 0; i < api_combobox->count(); ++i) {
+        const auto item_backend =
+            static_cast<Settings::RendererBackend>(api_combobox->itemData(i).toUInt());
+        const auto item_driver = static_cast<Settings::VulkanDriver>(
+            api_combobox->itemData(i, Qt::UserRole + 1).toUInt());
+        if (item_backend == backend && item_driver == driver) {
+            index = i;
+            break;
+        }
+    }
+    if (index < 0) {
+        // Null, or a Vulkan implementation that is not installed: show the shipped default.
+        index = 0;
+    }
+    api_combobox->setCurrentIndex(index);
+    api_backend =
+        static_cast<Settings::RendererBackend>(api_combobox->currentData().toUInt());
+    api_driver = static_cast<Settings::VulkanDriver>(
+        api_combobox->currentData(Qt::UserRole + 1).toUInt());
+    api_combobox->blockSignals(blocked);
+}
+#endif
+
 ConfigureGraphics::~ConfigureGraphics() = default;
 
 void ConfigureGraphics::SetConfiguration() {}
@@ -232,6 +346,16 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
 #endif
 
     for (const auto setting : Settings::values.linkage.by_category[Settings::Category::Renderer]) {
+        // The Vulkan implementation only exists as part of the macOS API choice.
+        if (setting->Id() == Settings::values.vulkan_driver.Id()) {
+            continue;
+        }
+#ifdef __APPLE__
+        // The backend and its Vulkan implementation are one row, built below.
+        if (setting->Id() == Settings::values.renderer_backend.Id()) {
+            continue;
+        }
+#endif
 #ifndef HAS_RESHADE
         if (setting->Id() == Settings::values.post_shader_enabled.Id()) {
             continue;
@@ -428,6 +552,10 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
         graphics_layout.addWidget(widget);
     }
 
+#ifdef __APPLE__
+    BuildAppleApiRow(api_layout, api_grid_layout);
+#endif
+
     // Hide rather than disable, a disabled widget would read as using the global value
     if (frame_gen_checkbox != nullptr) {
         const auto chosen = [=](Settings::FrameGenType type) {
@@ -587,6 +715,10 @@ void ConfigureGraphics::ApplyConfiguration() {
     Settings::RefreshNvidiaDlssRuntimeSettings();
 
     Settings::values.vulkan_device.SetGlobal(true);
+#ifdef __APPLE__
+    // The API row's apply function writes the backend and, for Vulkan, its implementation; there
+    // is no device index to store because each implementation exposes one device.
+#else
     auto const index = Settings::EnumMetadata<Settings::RendererBackend>::Index();
     if (Settings::IsConfiguringGlobal() ||
         (!Settings::IsConfiguringGlobal() && api_restore_global_button->isEnabled())) {
@@ -608,6 +740,7 @@ void ConfigureGraphics::ApplyConfiguration() {
             break;
         }
     }
+#endif
 }
 
 void ConfigureGraphics::changeEvent(QEvent* event) {
@@ -636,15 +769,27 @@ void ConfigureGraphics::UpdateAPILayout() {
     bool runtime_lock = !system.IsPoweredOn();
     bool need_global = !(Settings::IsConfiguringGlobal() || api_restore_global_button->isEnabled());
     vulkan_device = Settings::values.vulkan_device.GetValue(need_global);
-    vulkan_device_widget->setEnabled(!need_global && runtime_lock);
+    if (vulkan_device_widget != nullptr) {
+        vulkan_device_widget->setEnabled(!need_global && runtime_lock);
+    }
 
     const auto current_backend = GetCurrentGraphicsBackend();
     const bool is_vulkan = current_backend == Settings::RendererBackend::Vulkan;
-    vulkan_device_widget->setVisible(is_vulkan);
+#ifdef __APPLE__
+    // Each Vulkan implementation exposes one device, so the API choice replaces the device list.
+    if (vulkan_device_widget != nullptr) {
+        vulkan_device_widget->setVisible(false);
+    }
+#else
+    if (vulkan_device_widget != nullptr) {
+        vulkan_device_widget->setVisible(is_vulkan);
+    }
+#endif
     for (auto* widget : hdr_widgets) {
         widget->setVisible(is_vulkan);
     }
-    if (is_vulkan && int(vulkan_device) < vulkan_device_combobox->count()) {
+    if (is_vulkan && vulkan_device_combobox != nullptr &&
+        int(vulkan_device) < vulkan_device_combobox->count()) {
         vulkan_device_combobox->setCurrentIndex(vulkan_device);
     }
     UpdateAmdFsr4Visibility();
@@ -677,6 +822,16 @@ void ConfigureGraphics::RetrieveVulkanDevices() {
 
 Settings::RendererBackend ConfigureGraphics::GetCurrentGraphicsBackend() const {
     const auto selected_backend = [&]() {
+#ifdef __APPLE__
+        if (api_combobox == nullptr || api_combobox->count() == 0) {
+            return Settings::values.renderer_backend.GetValue();
+        }
+        if (!Settings::IsConfiguringGlobal() &&
+            (api_restore_global_button == nullptr || !api_restore_global_button->isEnabled())) {
+            return Settings::values.renderer_backend.GetValue(true);
+        }
+        return static_cast<Settings::RendererBackend>(api_combobox->currentData().toUInt());
+#else
         auto const index = Settings::EnumMetadata<Settings::RendererBackend>::Index();
         if (!Settings::IsConfiguringGlobal() && !api_restore_global_button->isEnabled())
             return Settings::values.renderer_backend.GetValue(true);
@@ -685,6 +840,7 @@ Settings::RendererBackend ConfigureGraphics::GetCurrentGraphicsBackend() const {
                    ? Settings::values.renderer_backend.GetValue()
                    : Settings::RendererBackend(
                          combobox_translations.at(index).at(api_combobox->currentIndex()).first);
+#endif
     }();
 
     if (selected_backend == Settings::RendererBackend::Vulkan &&

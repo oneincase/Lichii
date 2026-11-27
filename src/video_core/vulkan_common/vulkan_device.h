@@ -1359,6 +1359,16 @@ FN_MAX_LIMIT_LIST
         return properties.driver.driverID == VK_DRIVER_ID_MOLTENVK;
     }
 
+    /// Mesa's Vulkan-to-Metal driver on Apple silicon, selected through VulkanDriver::KosmicKrisp.
+    bool IsKosmicKrisp() const noexcept {
+        return properties.driver.driverID == VK_DRIVER_ID_MESA_KOSMICKRISP;
+    }
+
+    /// Either Vulkan implementation that presents through Metal on Apple silicon.
+    bool IsAppleVulkan() const noexcept {
+        return IsMoltenVK() || IsKosmicKrisp();
+    }
+
     /// Samplers may use a nonzero mipLodBias (false on portability subset devices without it).
     bool SupportsSamplerMipLodBias() const {
         return !loaded_extensions.contains(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME) ||

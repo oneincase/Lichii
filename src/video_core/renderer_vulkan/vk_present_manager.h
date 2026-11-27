@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <string>
 #include <boost/container/deque.hpp>
 
 #include "common/common_types.h"
@@ -176,6 +177,15 @@ private:
         std::chrono::nanoseconds spacing{};
         std::chrono::steady_clock::duration present_time{};
     } pacing_log;
+    /// EDEN_NX2_SWAPCHAIN_TRACE=1: one line per swapchain recreation, and every 10 s the
+    /// presents, recreations and the device memory the emulator's own allocations use.
+    void TraceRecreate(const Frame* frame);
+    void TracePresent();
+    std::string recreate_reason; ///< Why the next RecreateSwapchain call happens
+    u64 swapchain_recreations{};
+    u64 swapchain_presents{};
+    std::chrono::steady_clock::time_point trace_since{};
+
     /// See TakeBlockedTime. Atomic: a composite can also run from a syncpoint action on
     /// another thread (GPU::RequestComposite).
     std::atomic<std::chrono::steady_clock::rep> blocked_time{};

@@ -64,8 +64,9 @@ void ConfigureGraphicsExtensions::Setup(const ConfigurationShared::Builder& buil
 #ifdef __APPLE__
         if (setting->Id() == Settings::values.dyna_state.Id()) {
             widget->setEnabled(false);
-            widget->setToolTip(tr("Extended Dynamic State is disabled on macOS due to MoltenVK "
-                                  "compatibility issues that cause black screens."));
+            widget->setToolTip(tr("Extended Dynamic State stays off on macOS: MoltenVK renders "
+                                  "black screens with it, and KosmicKrisp builds keep the same "
+                                  "conservative default for now."));
         }
 #endif
     }

@@ -448,6 +448,67 @@ if (APPLE)
         MACOSX_PACKAGE_LOCATION Frameworks
         XCODE_FILE_ATTRIBUTES "CodeSignOnCopy")
     target_sources(lichii PRIVATE ${MOLTENVK_LIBRARY})
+
+    # The Vulkan loader reads ICD manifests, not libraries: without this manifest the bundled
+    # MoltenVK is invisible to it, and KosmicKrisp (which is loader-only) could not be chosen.
+    # Resources, not Frameworks: codesign treats everything under Frameworks as nested code and
+    # refuses an unsigned JSON manifest there.
+    set(_moltenvk_icd "${_dist}/MoltenVK_icd.json")
+    set_source_files_properties(${_moltenvk_icd} PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources)
+    target_sources(lichii PRIVATE ${_moltenvk_icd})
+
+    # The Khronos loader: KosmicKrisp is an ICD and cannot be dlopen'd directly.
+    find_library(VULKAN_LOADER_LIBRARY vulkan)
+    if (VULKAN_LOADER_LIBRARY)
+        # Under the name OpenLibrary() asks the loader for; copying by hand also dereferences
+        # Homebrew's versioned symlink.
+        add_custom_command(TARGET lichii POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy "${VULKAN_LOADER_LIBRARY}"
+                "$<TARGET_BUNDLE_DIR:lichii>/Contents/Frameworks/libvulkan.1.dylib"
+            VERBATIM)
+    else()
+        message(STATUS "No Vulkan loader found; KosmicKrisp needs one on the host")
+    endif()
+
+    # KosmicKrisp for hosts that have none: a release bakes in the Mesa it was built against.
+    # See docs/nx2/kosmickrisp.md for the Mesa build these paths come from.
+    set(LICHII_BUNDLED_KOSMICKRISP_DYLIB "" CACHE FILEPATH
+        "KosmicKrisp driver to bundle (empty bundles none)")
+    set(LICHII_BUNDLED_SPIRV_TOOLS_DYLIB "" CACHE FILEPATH
+        "SPIRV-Tools library the bundled KosmicKrisp links")
+    if (LICHII_BUNDLED_KOSMICKRISP_DYLIB AND EXISTS "${LICHII_BUNDLED_KOSMICKRISP_DYLIB}")
+        get_filename_component(_kk_dylib "${LICHII_BUNDLED_KOSMICKRISP_DYLIB}" REALPATH)
+        set_source_files_properties(${_kk_dylib} PROPERTIES
+            MACOSX_PACKAGE_LOCATION Frameworks)
+        target_sources(lichii PRIVATE ${_kk_dylib})
+        if (LICHII_BUNDLED_SPIRV_TOOLS_DYLIB AND EXISTS "${LICHII_BUNDLED_SPIRV_TOOLS_DYLIB}")
+            get_filename_component(_spirv_tools "${LICHII_BUNDLED_SPIRV_TOOLS_DYLIB}" REALPATH)
+            set_source_files_properties(${_spirv_tools} PROPERTIES
+                MACOSX_PACKAGE_LOCATION Frameworks)
+            target_sources(lichii PRIVATE ${_spirv_tools})
+        endif()
+        set(_kosmickrisp_icd "${_dist}/Kosmickrisp_icd.json")
+        set_source_files_properties(${_kosmickrisp_icd} PROPERTIES
+            MACOSX_PACKAGE_LOCATION "Resources/vulkan/icd.d")
+        target_sources(lichii PRIVATE ${_kosmickrisp_icd})
+
+        # The bundled driver must find SPIRV-Tools beside itself instead of in Homebrew.
+        add_custom_command(TARGET lichii POST_BUILD
+            COMMAND /usr/bin/install_name_tool -change
+                "${LICHII_BUNDLED_SPIRV_TOOLS_DYLIB}" "@loader_path/libSPIRV-Tools.dylib"
+                "$<TARGET_BUNDLE_DIR:lichii>/Contents/Frameworks/libvulkan_kosmickrisp.dylib"
+            VERBATIM)
+    endif()
+
+    # Anything added or edited above comes after the bundle's first signing pass.
+    if (VULKAN_LOADER_LIBRARY OR LICHII_BUNDLED_KOSMICKRISP_DYLIB)
+        add_custom_command(TARGET lichii POST_BUILD
+            COMMAND /usr/bin/codesign --force --sign -
+                --entitlements "${PROJECT_SOURCE_DIR}/dist/eglantine.entitlements"
+                "$<TARGET_BUNDLE_DIR:lichii>"
+            VERBATIM)
+    endif()
 elseif(WIN32)
     # compile as a win32 gui application instead of a console application
     target_link_libraries(lichii PRIVATE Qt6::EntryPointPrivate)

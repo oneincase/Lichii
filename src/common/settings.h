@@ -360,6 +360,10 @@ struct Values {
 #endif
         "backend", Category::Renderer};
     SwitchableSetting<u32> vulkan_device{linkage, 0, "vulkan_device", Category::Renderer, Specialization::RuntimeList};
+    // Apple only: the Vulkan implementation to run through. Auto follows the shipped default
+    // (MoltenVK); KosmicKrisp selects Mesa's driver when it is installed and new enough.
+    SwitchableSetting<VulkanDriver> vulkan_driver{linkage, VulkanDriver::Auto, "vulkan_driver",
+                                                  Category::Renderer};
 
     // Graphics Settings
     ResolutionScalingInfo resolution_info{};
