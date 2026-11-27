@@ -11,6 +11,9 @@ add_executable(tests
     video_core/unswizzle_workers.cpp
     video_core/block_linear_swizzle.cpp
     video_core/aftermath_dump.cpp
+    video_core/cdma_pusher_teardown.cpp
+    video_core/cdma_pusher_wait_stop.cpp
+    video_core/host1x_test_process.h
     video_core/frame_dump_schedule.cpp
     video_core/frame_dump_decode.cpp
     video_core/frame_gen_generations.cpp
@@ -29,9 +32,11 @@ add_executable(tests
     core/address_space.cpp
     core/nx2_streamplay.cpp
     core/nx2_gpu_only_regions.cpp
+    core/nx2_hdr_notifications.cpp
     core/nx2_video_ready.cpp
     core/general_channel.cpp
     core/home_menu.cpp
+    core/window_system.cpp
     core/native_home_bootstrap.cpp
     core/kernel_finish_termination.cpp
     core/nx2_thread_stats.cpp
@@ -40,6 +45,7 @@ add_executable(tests
     core/nx2_present_pacer.cpp
     core/nx2_present_queue.cpp
     core/nx2_syncpoint_allocator.cpp
+    core/nvdrv_syncpoint_complete.cpp
     core/nx2_fence_action.cpp
     core/nx2_frame_interval.cpp
     core/ldn_lan_protocol.cpp
@@ -81,6 +87,7 @@ add_executable(tests
     core/builtin_patches.cpp
     core/cheat_parser.cpp
     core/builtin_font_glyphs.cpp
+    core/system_test_context.cpp
     core/system_test_context.h
     video_core/ampere_branch_modifiers.cpp
     video_core/ampere_fast_fusion_logged.cpp
@@ -117,12 +124,14 @@ add_executable(tests
     video_core/native_texture_header_index.cpp
     video_core/texture_alias_ticks.cpp
     video_core/texture_cache_gob_layout.cpp
+    video_core/image_view_slots.cpp
     video_core/sampled_views.cpp
     video_core/texture_handles.cpp
     video_core/ampere_selevet_modes.cpp
     video_core/ampere_selevet_spills.cpp
     video_core/blit_dither.cpp
     video_core/maxwell_numeric.cpp
+    video_core/maxwell_r2p.cpp
     video_core/maxwell_permute_lod.cpp
     video_core/submission_policy.cpp
     video_core/native_pending_policy.cpp
@@ -153,6 +162,7 @@ add_executable(tests
     video_core/spirv_atomic_retry.cpp
     video_core/spirv_storage_alignment.cpp
     video_core/spirv_fragment_shuffle.cpp
+    video_core/phi_identity_operand.cpp
     video_core/mesh_fallback.cpp
     video_core/mesh_vertex_input.cpp
     video_core/multi_range_refresh.cpp
@@ -170,6 +180,7 @@ add_executable(tests
     video_core/safe_command_reads.cpp
     video_core/pending_maps.cpp
     video_core/maxwell_fast_method.cpp
+    video_core/nx2_fast_draw_landing.cpp
     hid_core/emulated_controller_config.cpp
     hid_core/npad_assignment.cpp
     hid_core/sensor_info.cpp
@@ -218,6 +229,7 @@ add_executable(tests
     video_core/spirv_min_max_denorms.cpp
     video_core/spirv_nan_safe_min_max.cpp
     video_core/spirv_scalar_constants.cpp
+    video_core/spirv_emit_twice.cpp
     video_core/ssa_fixed_variables.cpp
     video_core/virtual_range_cache.cpp
     video_core/ocarina_upscale.cpp
@@ -240,6 +252,7 @@ add_executable(tests
     common/host_memory_failure.cpp
     common/host_memory_test_access.h
     core/host_memory_failure.cpp
+    common/library_exceptions.cpp
     common/memory_detect.cpp
     common/multi_level_page_table.cpp
     common/nextendo.cpp
@@ -305,6 +318,7 @@ add_executable(tests
     video_core/turing_macro_effects.cpp
     video_core/turing_macro_ram.cpp
     video_core/uniform_stream_reuse.cpp
+    video_core/vk_stream_ring.cpp
     video_core/usage_tracker.cpp
     video_core/nx2_backx.cpp
     video_core/vertex_input_cache.cpp
@@ -348,7 +362,8 @@ target_link_libraries(ncz_tests PRIVATE common OpenSSL::Crypto zstd::zstd
 add_test(NAME ncz_tests COMMAND ncz_tests)
 
 if (TARGET dynarmic::dynarmic)
-    target_sources(tests PRIVATE core/jit_codegen_options.cpp core/jit_ordered_loads.cpp core/window_trace.cpp)
+    target_sources(tests PRIVATE core/jit_codegen_options.cpp core/jit_ordered_loads.cpp
+        core/jit_vector_round_int16.cpp core/window_trace.cpp)
     target_link_libraries(tests PRIVATE dynarmic::dynarmic)
 endif()
 
